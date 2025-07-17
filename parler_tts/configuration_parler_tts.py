@@ -238,28 +238,34 @@ class ParlerTTSConfig(PretrainedConfig):
     is_composition = True
 
     def __init__(self, vocab_size=1024, prompt_cross_attention=False, **kwargs):
+        # 1. Pop the nested configs first, providing `None` as a default.
+        #    This prevents an error if they don't exist.
+        text_encoder_config = kwargs.pop("text_encoder", None)
+        audio_encoder_config = kwargs.pop("audio_encoder", None)
+        decoder_config = kwargs.pop("decoder", None)
+
+        # 2. Now, pass the remaining "flat" kwargs to the parent constructor.
         super().__init__(**kwargs)
-        if "text_encoder" not in kwargs or "audio_encoder" not in kwargs or "decoder" not in kwargs:
-            raise ValueError("Config has to be initialized with text_encoder, audio_encoder and decoder config")
-
-        text_encoder_config = kwargs.pop("text_encoder")
-        text_encoder_model_type = text_encoder_config.pop("model_type")
-
-        audio_encoder_config = kwargs.pop("audio_encoder")
-        audio_encoder_model_type = audio_encoder_config.pop("model_type")
-
-        model_version = kwargs.get("transformers_version", None)
-        if model_version is not None and Version(model_version) <= Version("4.44.2dev") and use_dac_on_the_hub and audio_encoder_model_type=="dac":
-            # here we have to manually change model type if DAC based on transformers version
-            audio_encoder_model_type = "dac_on_the_hub"
-
-        decoder_config = kwargs.pop("decoder")
 
         self.vocab_size = vocab_size
         self.prompt_cross_attention = prompt_cross_attention
-        self.text_encoder = AutoConfig.for_model(text_encoder_model_type, **text_encoder_config)
-        self.audio_encoder = AutoConfig.for_model(audio_encoder_model_type, **audio_encoder_config)
-        self.decoder = ParlerTTSDecoderConfig(**decoder_config)
+
+        # 3. Only build the sub-model configs if they were actually provided.
+        #    This block will be skipped during the initial empty call from `from_pretrained`.
+        if text_encoder_config and audio_encoder_config and decoder_config:
+            text_encoder_model_type = text_encoder_config.pop("model_type")
+            audio_encoder_model_type = audio_encoder_config.pop("model_type")
+
+            # Note: access transformers_version from `self` after `super().__init__` has been called
+            model_version = getattr(self, "transformers_version", None)
+            # (Your logic for handling DAC model type remains here)
+            if model_version is not None and Version(model_version) <= Version("4.44.2dev") and use_dac_on_the_hub and audio_encoder_model_type == "dac":
+                audio_encoder_model_type = "dac_on_the_hub"
+
+            self.text_encoder = AutoConfig.for_model(text_encoder_model_type, **text_encoder_config)
+            self.audio_encoder = AutoConfig.for_model(audio_encoder_model_type, **audio_encoder_config)
+            self.decoder = ParlerTTSDecoderConfig(**decoder_config)
+
         self.is_encoder_decoder = True
 
     @classmethod
